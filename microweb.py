@@ -1,4 +1,6 @@
+#! /usr/bin/python2.7
 
+import argparse
 import logging
 import logging.handlers
 import Queue
@@ -78,26 +80,36 @@ class HTTPWorker(threading.Thread):
 
 if __name__ == '__main__':
 
-    HOST, PORT = '', 8080
     connection_queue = Queue.Queue()
 
+    parser = argparse.ArgumentParser(description="Micro Web", add_help=False)
+    parser.add_argument('--help', action='help', help='show this help message and exit')
+    parser.add_argument('-q', '--quiet', action='store_true', default=False, help="Don't display log messages")
+    parser.add_argument('--debug', action='store_true', default=False, help="Enable debug logging")
+    parser.add_argument('-h', '--host', type=str, default='', help="Host to connect socket to. Default ''.")
+    parser.add_argument('-p', '--port', type=int, default=8080, help="Port to connect socket to. Default 8080.")
+    parser.add_argument('-t', '--threads', type=int, default=2, help="Processing threads to start. Default 2.")
+    options = parser.parse_args()
+
     log = logging.getLogger("microweb")
-    log.setLevel(logging.DEBUG)
+    log.setLevel(logging.DEBUG if options.debug else logging.INFO)
     log_formatter = logging.Formatter('%(asctime)s %(levelname)8s %(message)s')
     log_console_handler = logging.StreamHandler()
     log_console_handler.setLevel(logging.DEBUG)
     log_console_handler.setFormatter(log_formatter)
     log.addHandler(log_console_handler)
+    log.info("Level at INFO")
+    log.debug("Level at DEBUG")
 
     listen_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listen_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listen_socket.bind((HOST, PORT))
+    listen_socket.bind((options.host, options.port))
     listen_socket.listen(1)
 
-    log.info("Serving on port %s", PORT)
+    log.info("Serving on port %s", options.port)
 
     http_workers = []
-    for x in range(2):
+    for x in range(options.threads):
         _worker = HTTPWorker(connection_queue, log)
         _worker.start()
         http_workers.append(_worker)
