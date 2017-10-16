@@ -22,6 +22,20 @@ class HTTPRequest(object):
                                                                     self.http_version)
 
 
+class HTTPResponse(object):
+    def __init__(self, http_version):
+        self.http_version = http_version
+        self.response_code = 200
+        self.response_message = "OK"
+        self.body = ""
+
+    def __str__(self):
+        return "{} {} {}\n\n{}".format(self.http_version,
+                                       self.response_code,
+                                       self.response_message,
+                                       self.body)
+
+
 class HTTPWorker(threading.Thread):
 
     def __init__(self, connection_queue, log):
@@ -36,20 +50,17 @@ class HTTPWorker(threading.Thread):
 
         while True:
             connection = self.connq.get()
-            request = connection.recv(1024)
-            parsed_request = HTTPRequest(request)
+            request = HTTPRequest(connection.recv(1024))
             log.info("%s %s %s %s",
                      self.name,
-                     parsed_request.method,
-                     parsed_request.request_uri,
-                     parsed_request.http_version)
+                     request.method,
+                     request.request_uri,
+                     request.http_version)
 
-            http_response = """
-HTTP/1.1 200 OK
+            response = HTTPResponse(request.http_version)
+            response.body = "Hello, World!"
 
-Hello, World!
-"""
-            connection.sendall(http_response)
+            connection.sendall(str(response))
             connection.close()
 
 
