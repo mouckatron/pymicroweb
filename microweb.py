@@ -16,10 +16,21 @@ class HTTPRequest(object):
         self.request_uri = request_uri
         self.http_version = http_version
 
+        self.headers = {}
+
+        for line in lines:
+            try:
+                _header, _value = line.split(' ', 1)
+            except ValueError:
+                pass  # empty header
+            else:
+                self.headers[_header] = _value
+
     def __str__(self):
-        return "Method: {} Request URI: {} HTTP Version: {}".format(self.method,
-                                                                    self.request_uri,
-                                                                    self.http_version)
+        return "Method: {} Request URI: {} HTTP Version: {} {}".format(self.method,
+                                                                       self.request_uri,
+                                                                       self.http_version,
+                                                                       ' '.join(["Header {}: {}".format(x, self.headers[x]) for x in self.headers]))
 
 
 class HTTPResponse(object):
@@ -56,6 +67,7 @@ class HTTPWorker(threading.Thread):
                      request.method,
                      request.request_uri,
                      request.http_version)
+            log.debug(str(request))
 
             response = HTTPResponse(request.http_version)
             response.body = "Hello, World!"
