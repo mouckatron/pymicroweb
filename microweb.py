@@ -3,6 +3,7 @@
 import argparse
 import logging
 import logging.handlers
+import os.path as op
 import Queue
 import socket
 import threading
@@ -15,24 +16,24 @@ class HTTPRequest(object):
         del lines[0]
 
         self.method = method
-        self.request_uri = request_uri
+        self.request_uri = request_uri.lstrip('/.')
         self.http_version = http_version
 
         self.headers = {}
 
         for line in lines:
             try:
-                _header, _value = line.split(' ', 1)
+                _header, _value = line.split(': ', 1)
             except ValueError:
                 pass  # empty header
             else:
                 self.headers[_header] = _value
 
     def __str__(self):
-        return "Method: {} Request URI: {} HTTP Version: {} {}".format(self.method,
+        return "Method: {} Request URI: {} HTTP Version: {} Headers={}".format(self.method,
                                                                        self.request_uri,
                                                                        self.http_version,
-                                                                       ' '.join(["Header {}: {}".format(x, self.headers[x]) for x in self.headers]))
+                                                                       self.headers)
 
 
 class HTTPResponse(object):
@@ -51,13 +52,16 @@ class HTTPResponse(object):
 
 class HTTPWorker(threading.Thread):
 
-    def __init__(self, connection_queue, log):
+    def __init__(self, connection_queue, options, log):
 
         threading.Thread.__init__(self)
         self.daemon = True  # daemonise so it dies with main
         self.connq = connection_queue
+        self.options = options
+        self.wwwdir = options.www
         self.log = log
         self.log.debug("%s Awaiting connections", self.name)
+        self.log.debug("%s WWW dir: %s", self.name, self.wwwdir)
 
     def run(self):
 
@@ -72,10 +76,19 @@ class HTTPWorker(threading.Thread):
             log.debug(str(request))
 
             response = HTTPResponse(request.http_version)
-            response.body = "Hello, World!"
+            if request.method == 'GET':
+                self.get(request, response)
 
             connection.sendall(str(response))
             connection.close()
+
+    def get(self, request, response):
+        try:
+            response.body = open(op.join(self.wwwdir, request.request_uri)).read()
+        except:
+            self.log.error("File Not Found: %s", op.join(self.wwwdir, request.request_uri))
+            response.response_code = 404
+            response.response_message = "File not found"
 
 
 if __name__ == '__main__':
@@ -89,6 +102,7 @@ if __name__ == '__main__':
     parser.add_argument('-h', '--host', type=str, default='', help="Host to connect socket to. Default ''.")
     parser.add_argument('-p', '--port', type=int, default=8080, help="Port to connect socket to. Default 8080.")
     parser.add_argument('-t', '--threads', type=int, default=2, help="Processing threads to start. Default 2.")
+    parser.add_argument('-w', '--www', type=str, default='./www', help="WWW directory for files. Default ./www.")
     options = parser.parse_args()
 
     log = logging.getLogger("microweb")
@@ -110,7 +124,7 @@ if __name__ == '__main__':
 
     http_workers = []
     for x in range(options.threads):
-        _worker = HTTPWorker(connection_queue, log)
+        _worker = HTTPWorker(connection_queue, options, log)
         _worker.start()
         http_workers.append(_worker)
 
