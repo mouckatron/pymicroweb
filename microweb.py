@@ -83,6 +83,7 @@ class HTTPRequest(object):
     fileext_re = re.compile('^.*\.([a-zA-Z]{2,5})$')
 
     def __init__(self, request):
+        self._request = request
         lines = request.splitlines()
         method, request_uri, http_version = lines[0].split()
         del lines[0]
@@ -116,7 +117,10 @@ class HTTPRequest(object):
         self.uri['fileext'] = HTTPRequest.fileext_re.match(self.uri['path']).group(1)
 
     def __str__(self):
-        return "Method: '{}' Request URI: '{}' Parsed URI: '{}' HTTP Version: '{}' Headers={}".format(
+        return self._request
+
+    def debug(self):
+        return "HTTPRequest Method: '{}' Request URI: '{}' Parsed URI: '{}' HTTP Version: '{}' Headers={}".format(
             self.method,
             self.request_uri,
             self.uri,
@@ -125,8 +129,9 @@ class HTTPRequest(object):
 
 
 class HTTPResponse(object):
-    def __init__(self, http_version):
+    def __init__(self, http_version, http_method):
         self.http_version = http_version
+        self.method = http_method
         self.response_code = 200
         self.response_message = "OK"
         self.body = ""
@@ -139,7 +144,21 @@ class HTTPResponse(object):
     def setheader(self, header, value):
         self.headers[header] = value
 
+    def debug(self):
+        return "HTTPResponse Method: '{}' Code: '{}' Message: '{}' HTTP Version: '{}' Headers={}".format(
+            self.method,
+            self.response_code,
+            self.response_message,
+            self.http_version,
+            self.headers)
+
     def __str__(self):
+        if self.method == 'HEAD':
+            return "{} {} {}\n{}".format(self.http_version,
+                                         self.response_code,
+                                         self.response_message,
+                                         "\n".join(["{}: {}".format(x, self.headers[x]) for x in self.headers]))
+
         return "{} {} {}\n{}\n\n{}".format(self.http_version,
                                            self.response_code,
                                            self.response_message,
@@ -170,12 +189,13 @@ class HTTPWorker(threading.Thread):
                      request.method,
                      request.request_uri,
                      request.http_version)
-            log.debug(str(request))
+            log.debug(request.debug())
 
-            response = HTTPResponse(request.http_version)
-            if request.method == 'GET':
+            response = HTTPResponse(request.http_version, request.method)
+            if request.method == 'GET' or request.method == 'HEAD':
                 self.get(request, response)
 
+            log.debug(response.debug())
             connection.sendall(str(response))
             connection.close()
 
