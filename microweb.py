@@ -42,12 +42,22 @@ class HTTPResponse(object):
         self.response_code = 200
         self.response_message = "OK"
         self.body = ""
+        self.headers = {'Server': 'pymicroweb'}
 
+
+    def setbody(self, data):
+        self.body = data
+        self.headers['Content-Length'] = len(self.body.encode('utf-8'))
+
+    def setheader(self, header, value):
+        self.headers[header] = value
+        
     def __str__(self):
-        return "{} {} {}\n\n{}".format(self.http_version,
-                                       self.response_code,
-                                       self.response_message,
-                                       self.body)
+        return "{} {} {}\n{}\n\n{}".format(self.http_version,
+                                           self.response_code,
+                                           self.response_message,
+                                           "\n".join(["{}: {}".format(x, self.headers[x]) for x in self.headers]),
+                                           self.body)
 
 
 class HTTPWorker(threading.Thread):
@@ -84,8 +94,8 @@ class HTTPWorker(threading.Thread):
 
     def get(self, request, response):
         try:
-            response.body = open(op.join(self.wwwdir, request.request_uri)).read()
-        except:
+            response.setbody(open(op.join(self.wwwdir, request.request_uri)).read())
+        except  IOError:
             self.log.error("File Not Found: %s", op.join(self.wwwdir, request.request_uri))
             response.response_code = 404
             response.response_message = "File not found"
