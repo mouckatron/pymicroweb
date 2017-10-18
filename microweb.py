@@ -3,6 +3,7 @@
 import argparse
 import logging
 import logging.handlers
+import os
 import os.path as op
 import Queue
 import re
@@ -89,11 +90,11 @@ class HTTPRequest(object):
         del lines[0]
 
         self.method = method
-        self.request_uri = request_uri.lstrip('/.')
+        self.request_uri = request_uri
         self.http_version = http_version
 
         self.headers = {}
-        self.uri = {'path': 'index.html', 'query': '', 'fragment': '', 'fileext': ''}
+        self.uri = {'path': '', 'query': '', 'fragment': '', 'fileext': ''}
         self.parse_uri()
 
         for line in lines:
@@ -105,16 +106,18 @@ class HTTPRequest(object):
                 self.headers[_header] = _value
 
     def parse_uri(self):
-        if self.request_uri == '':
-            self.uri['fileext'] = HTTPRequest.fileext_re.match(self.uri['path']).group(1)
-            return
-
         _parse = HTTPRequest.uri_re.match(self.request_uri)
+
+        if _parse is None:
+            return
 
         self.uri['path'] = _parse.group(1)
         self.uri['query'] = _parse.group(2)
         self.uri['fragment'] = _parse.group(3)
-        self.uri['fileext'] = HTTPRequest.fileext_re.match(self.uri['path']).group(1)
+        try:
+            self.uri['fileext'] = HTTPRequest.fileext_re.match(self.uri['path']).group(1)
+        except AttributeError:
+            pass
 
     def __str__(self):
         return self._request
@@ -175,9 +178,11 @@ class HTTPWorker(threading.Thread):
         self.connq = connection_queue
         self.options = options
         self.wwwdir = options.www
+        self.listdir = options.www_listdir
         self.log = log
         self.log.debug("%s Awaiting connections", self.name)
         self.log.debug("%s WWW dir: %s", self.name, self.wwwdir)
+        self.log.debug("%s WWW List Directories: %s", self.name, ("On" if self.listdir else "Off"))
 
     def run(self):
 
@@ -199,18 +204,38 @@ class HTTPWorker(threading.Thread):
             connection.sendall(str(response))
             connection.close()
 
+    def directory_listing(self, request):
+        html = "<html><head><title>{path}</title></head><body><h1>{path}</h1><ul>{listing}</ul></body></html>"
+
+        _dirlist = os.listdir(op.join(self.wwwdir, request.uri['path'].lstrip('/')))
+        _listing = ''.join(['<li><a href="{}/{}">{}</a></li>'.format(request.uri['path'], x, x) for x in _dirlist])
+
+        return html.format(path=request.uri['path'], listing=_listing)
+
     def get(self, request, response):
-        try:
-            response.setbody(open(op.join(self.wwwdir, request.uri['path'])).read())
-        except IOError:
-            self.log.error("File Not Found: %s", op.join(self.wwwdir, request.uri['path']))
-            response.response_code = 404
-            response.response_message = "File not found"
-        else:
+        if op.isdir(op.join(self.wwwdir, request.uri['path'].lstrip('/'))):  # we have no file to check for
+            log.debug("Request is a directory, checking for index.html")
+            try:  # try default file
+                response.setbody(open(op.join(self.wwwdir, 'index.html')).read())
+            except IOError:  # if it does not exist
+                if self.listdir:  # check if we can do directory listing
+                    response.setbody(self.directory_listing(request))
+                else:  # otherwise return a 404
+                    self.log.error("File Not Found: %s", op.join(self.wwwdir, request.uri['path'].lstrip('/')))
+                    response.response_code = 404
+                    response.response_message = "File not found"
+        else:  # we have a file name to check for
             try:
-                response.setheader('Content-Type', MIME_TYPES[request.uri['fileext']])
-            except KeyError:
-                self.log.error("No MIME type for %s", request.uri['fileext'])
+                response.setbody(open(op.join(self.wwwdir, request.uri['path'].lstrip('/'))).read())
+            except IOError:
+                self.log.error("File Not Found: %s", op.join(self.wwwdir, request.uri['path'].lstrip('/')))
+                response.response_code = 404
+                response.response_message = "File not found"
+            else:
+                try:
+                    response.setheader('Content-Type', MIME_TYPES[request.uri['fileext']])
+                except KeyError:
+                    self.log.error("No MIME type for %s", request.uri['fileext'])
 
 
 if __name__ == '__main__':
@@ -225,7 +250,10 @@ if __name__ == '__main__':
     parser.add_argument('-p', '--port', type=int, default=8080, help="Port to connect socket to. Default 8080.")
     parser.add_argument('-t', '--threads', type=int, default=2, help="Processing threads to start. Default 2.")
     parser.add_argument('-w', '--www', type=str, default='./www', help="WWW directory for files. Default ./www.")
+    parser.add_argument('--www-listdir', action='store_true', default=False, help="Show directory listings if no index.html file exists.")
     options = parser.parse_args()
+
+    options.www = op.join(op.abspath(options.www))
 
     log = logging.getLogger("microweb")
     log.setLevel(logging.DEBUG if options.debug else logging.INFO)
