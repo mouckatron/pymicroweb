@@ -140,9 +140,12 @@ class HTTPResponse(object):
         self.body = ""
         self.headers = {'Server': 'pymicroweb'}
 
-    def setbody(self, data):
+    def setbody(self, data, text=True):
         self.body = data
-        self.headers['Content-Length'] = len(self.body.encode('utf-8'))
+        if text:
+            self.headers['Content-Length'] = len(self.body.encode('utf-8'))
+        else:  # binary
+            self.headers['Content-Length'] = len(self.body)
 
     def setheader(self, header, value):
         self.headers[header] = value
@@ -226,7 +229,10 @@ class HTTPWorker(threading.Thread):
                     response.response_message = "File not found"
         else:  # we have a file name to check for
             try:
-                response.setbody(open(op.join(self.wwwdir, request.uri['path'].lstrip('/'))).read())
+                if MIME_TYPES[request.uri['fileext']].startswith('text'):
+                    response.setbody(open(op.join(self.wwwdir, request.uri['path'].lstrip('/')), 'r').read())
+                else:  # binary file
+                    response.setbody(open(op.join(self.wwwdir, request.uri['path'].lstrip('/')), 'rb').read(), False)
             except IOError:
                 self.log.error("File Not Found: %s", op.join(self.wwwdir, request.uri['path'].lstrip('/')))
                 response.response_code = 404
